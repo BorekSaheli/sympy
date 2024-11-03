@@ -47,7 +47,7 @@ np = import_module(
 
 
 class Member:
-    def __init__(self, x1, y1, x2, y2, E, I, A, member_id):
+    def __init__(self, x1, y1, x2, y2, E, I, A, member_id, member_label: str | None = None):
         self.x1 = x1
         self.y1 = y1
         self.x2 = x2
@@ -56,7 +56,7 @@ class Member:
         self.I = I
         self.A = A
         self.member_id = member_id
-        self.member_label = f"m{member_id}"
+        self.member_label = member_label or f"m{member_id}"
 
         # properties that are auto computed
         self.length = self._compute_length()
@@ -65,9 +65,9 @@ class Member:
         self.member_loads = []
         self.member_eq = self._compute_eq()
 
-    def rename(self, new_name):
-        self.member_label = new_name
-        return self
+    # def rename(self, new_name):
+    #     self.member_label = new_name
+    #     return self
 
     def _compute_eq(self):
         x1, y1, x2, y2 = self.x1, self.y1, self.x2, self.y2
@@ -292,7 +292,8 @@ class Structure2d:
             second_moment=second_moment,
         )
 
-    def add_member(self, x1, y1, x2, y2, E, I, A):
+    # def add_member(self, x1, y1, x2, y2, E, I, A):
+    def add_member(self, **kwargs):
         """
         Adds a member to the structure on a x and y grid.
 
@@ -341,11 +342,10 @@ class Structure2d:
         >>> s.add_member(0, 0, 4, 0, E, I, A)
         """
 
-        member_id = len(self.members)
-        member = Member(x1, y1, x2, y2, E, I, A, member_id)
+        member = Member(**kwargs, member_id=len(self.members))
         self.members.append(member)
-        self._add_or_update_node(x1, y1, "fixed", overwrite_type=False)
-        self._add_or_update_node(x2, y2, "fixed", overwrite_type=False)
+        self._add_or_update_node(kwargs["x1"], kwargs["y1"], "fixed", overwrite_type=False)
+        self._add_or_update_node(kwargs["x2"], kwargs["y2"], "fixed", overwrite_type=False)
 
         return member
 
