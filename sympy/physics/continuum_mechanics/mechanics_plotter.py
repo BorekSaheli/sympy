@@ -51,13 +51,18 @@ np = import_module(
 
 
 class Member:
-    def __init__(self, m_id, label, start, end, symbol_hint, properties):
+    def __init__(self, m_id, coordinates, orientation, label, symbol_hint, properties):
         self.m_id = m_id
+        self.start = coordinates['start']
+        self.end = coordinates['end']
+        self.angle_deg = orientation['angle_deg']
+        self.length = orientation['length']
+        self.orientation = orientation
         self.label = label
-        self.start = start
-        self.end = end
         self.symbol_hint = symbol_hint
         self.properties = properties
+        # this shoudl also preform a check if all values are correct  and fill in the missing hints
+
 
     def rename(self, new_name):
         self.label = new_name
@@ -96,70 +101,86 @@ class Draw2:
     DEFAULT_HINT_VALUES = {
         "member_length": 5,
         "load_value": 10,
-        "bending_moment": 10,
         "angle_deg": 45,
     }
+
+    def apply_hint(self, API_lib_individual):
+        hint_values = self.DEFAULT_HINT_VALUES
+
+
+
+
+
+
+
+
+
+    def parse_value(value, rounding=None, try_nummeric=False):
+        # Handle standalone float values
+        if isinstance(value, (Float, float)):
+            draw_value = float(value)
+            if rounding is not None:
+                return round(float(value), rounding), 'float_rounded'
+            return value, draw_value, 'float_exact'
+
+        # Handle SymPy expressions
+        if isinstance(value, Basic):
+            has_symbols = bool(value.free_symbols)
+            float_atoms = value.atoms(Float)
+            numbers = value.atoms(Number)
+
+            draw_value = value
+
+            # Convert numbers to floats if try_nummeric is True
+            if try_nummeric:
+                value = value.xreplace({num: float(num) for num in numbers})
+
+                if rounding is not None:
+                    value = value.xreplace({f: round(float(f), rounding) for f in value.atoms(Float)})
+                status = 'numeric_with_symbols' if has_symbols else 'numeric_only'
+                return value,draw_value, status
+
+            # Pure symbols case (only symbols, no numbers at all)
+            if has_symbols and not float_atoms and not numbers:
+                return value, 'symbol_only'
+
+            # Handle cases with both symbols and exact numbers (but no floats)
+            if has_symbols and numbers and not float_atoms:
+                return value, 'symbol_mixed_exact'
+
+            if float_atoms:
+                if rounding is not None:
+                    # Round only the Float components while preserving other parts
+                    rounded_value = value.xreplace({f: round(float(f), rounding) for f in float_atoms})
+                    return rounded_value, 'symbol_mixed_rounded' if has_symbols else 'expr_mixed_rounded'
+                return value, 'symbol_mixed_exact' if has_symbols else 'expr_mixed_exact'
+
+            if has_symbols:
+                return value, 'symbol_free_exact'
+
+            return value, 'exact'
+
+        # Fallback for unexpected cases
+        return value, 'unknown'
+
+    # # Test the function
+        # print(parse_value(Symbol('F')))
+    print(parse_value(sqrt(2)))
+
+    print(parse_value(Symbol('F') + cos(2),2))            # Expected: (F + 2, 'symbol_free_exact')
+    print(parse_value(sqrt(2.65454) + Symbol('F'), 3))  # Expected: (rounded value, 'symbol_mixed_rounded')
+    print(parse_value(2.65454, 3))                      # Expected: (2.655, 'float_rounded')
+    print(parse_value(2.65454))
+    print(parse_value(sin(2) + 3.6568, 2))              # Expected: (rounded expression, 'expr_mixed_rounded')
+    print(parse_value(sqrt(2) + 3.6568))                # Expected: (sqrt(2) + 3.6568, 'expr_mixed')
+    print(parse_value(Symbol('F') + cos(2), 2,try_nummeric=True))
+    print(parse_value(sin(pi) + 3.6568, 3,try_nummeric=True))
+    print(parse_value(sin(sqrt(2))+0.3232654))
 
 
     def draw2(self):
 
-        def parse_value(value, rounding=None, try_nummeric=False):
-            # Handle standalone float values
-            if isinstance(value, (Float, float)):
-                if rounding is not None:
-                    return round(float(value), rounding), 'float_rounded'
-                return float(value), 'float_exact'
 
-            # Handle SymPy expressions
-            if isinstance(value, Basic):
-                has_symbols = bool(value.free_symbols)
-                float_atoms = value.atoms(Float)
-                numbers = value.atoms(Number)
-
-                # Convert numbers to floats if try_nummeric is True
-                if try_nummeric:
-                    value = value.xreplace({num: float(num) for num in numbers})
-                    if rounding is not None:
-                        value = value.xreplace({f: round(float(f), rounding) for f in value.atoms(Float)})
-                    status = 'numeric_with_symbols' if has_symbols else 'numeric_only'
-                    return value, status
-
-                # Pure symbols case (only symbols, no numbers at all)
-                if has_symbols and not float_atoms and not numbers:
-                    return value, 'symbol_only'
-
-                # Handle cases with both symbols and exact numbers (but no floats)
-                if has_symbols and numbers and not float_atoms:
-                    return value, 'symbol_mixed_exact'
-
-                if float_atoms:
-                    if rounding is not None:
-                        # Round only the Float components while preserving other parts
-                        rounded_value = value.xreplace({f: round(float(f), rounding) for f in float_atoms})
-                        return rounded_value, 'symbol_mixed_rounded' if has_symbols else 'expr_mixed_rounded'
-                    return value, 'symbol_mixed_exact' if has_symbols else 'expr_mixed_exact'
-
-                if has_symbols:
-                    return value, 'symbol_free_exact'
-
-                return value, 'exact'
-
-            # Fallback for unexpected cases
-            return value, 'unknown'
-
-        # # Test the function
-        # print(parse_value(Symbol('F')))
-        # print(parse_value(sqrt(2)))
-
-        # print(parse_value(Symbol('F') + cos(2),2))            # Expected: (F + 2, 'symbol_free_exact')
-        # print(parse_value(sqrt(2.65454) + Symbol('F'), 3))  # Expected: (rounded value, 'symbol_mixed_rounded')
-        # print(parse_value(2.65454, 3))                      # Expected: (2.655, 'float_rounded')
-        # print(parse_value(2.65454))
-        # print(parse_value(sin(2) + 3.6568, 2))              # Expected: (rounded expression, 'expr_mixed_rounded')
-        # print(parse_value(sqrt(2) + 3.6568))                # Expected: (sqrt(2) + 3.6568, 'expr_mixed')
-        # print(parse_value(Symbol('F') + cos(2), 2,try_nummeric=True))
-        # print(parse_value(sin(pi) + 3.6568, 3,try_nummeric=True))
-        # print(parse_value(sin(sqrt(2))+0.3232654))
 
 ####################################################################################
 
@@ -223,6 +244,3 @@ class Draw2:
             plt.yticks(new_y_ticks)
 
         ax.grid(True, zorder=10)
-
-
-
