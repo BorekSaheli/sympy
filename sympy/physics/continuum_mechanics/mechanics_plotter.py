@@ -1,16 +1,14 @@
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Union
+from typing import Dict, Iterable, Optional, Tuple, Union, cast
 
-from sympy import Basic, Float, Number, S, Symbol, simplify
-from sympy.core.expr import Expr
+from sympy import S
+from sympy.core import Basic, Expr, Symbol
 from sympy.core.numbers import pi
 from sympy.external import import_module
-from sympy.functions.elementary.complexes import Abs
 from sympy.functions.elementary.miscellaneous import sqrt
-from sympy.functions.elementary.trigonometric import atan2, cos, sin, tan
+from sympy.functions.elementary.trigonometric import atan2, cos, sin
 from sympy.geometry.polygon import deg, rad
-from sympy.physics.continuum_mechanics.beam import Beam
-from sympy.simplify import nsimplify, simplify
+from sympy.simplify import simplify
 
 plt = import_module(
     "matplotlib.pyplot",
@@ -33,15 +31,6 @@ patches = import_module(
     },
 )
 
-transforms = import_module(
-    "matplotlib.transforms",
-    import_kwargs={
-        "fromlist": [
-            "transforms",
-        ]
-    },
-)
-
 np = import_module(
     "numpy",
     import_kwargs={
@@ -52,59 +41,183 @@ np = import_module(
 )
 
 
+# Define allowed value types
+AllowedValueTypes = Union[int, float, Expr]
+Point2D = Tuple[AllowedValueTypes, AllowedValueTypes]
+
+
+@dataclass
+class ParseResult:
+    original_expression: AllowedValueTypes
+    collapsed_expression: AllowedValueTypes
+
+
+def separate_symbolic_and_constants(
+    expr: Expr, symbols: Iterable[Symbol]
+) -> Tuple[Expr, float]:
+    symbolic_part: Expr = S.Zero  # Use SymPy's symbolic zero
+    constant_part: float = 0.0  # Initialize as float
+
+    # Check if the expression is additive (e.g., a + b + c)
+    if expr.is_Add:
+        terms = expr.as_ordered_terms()
+    else:
+        # Treat the entire expression as a single term
+        terms = [expr]
+
+    for term in terms:
+        if term.has(*symbols):
+            symbolic_part += term
+        else:
+            # Convert term to float to ensure constant_part remains a float
+            constant_part += float(term)
+
+    return symbolic_part, constant_part
+
+
+def parse_value(
+    value: AllowedValueTypes,
+    rounding: Optional[int] = None,
+) -> ParseResult:
+    MAX_ROUNDING = 15
+    if rounding is None:
+        rounding = MAX_ROUNDING
+
+    if not isinstance(value, (int, float, Expr)):
+        raise ValueError("Invalid value type")
+
+    # Initialize the original expression
+    original_expr: AllowedValueTypes = value
+    # print(value,type(value))
+
+    # Initialize collapsed expression as AllowedValueTypes
+    collapsed_expr: AllowedValueTypes
+
+    if isinstance(original_expr, Expr):
+        if original_expr.free_symbols:
+            # Extract all free symbols in the expression
+            # Cast to Iterable[Symbol] to satisfy type checker
+            free_symbols = cast(Iterable[Symbol], original_expr.free_symbols)
+            symbolic, constant = separate_symbolic_and_constants(
+                original_expr, free_symbols
+            )
+
+            # Initialize the collapsed expression as Expr
+            collapsed_expr = S.Zero  # Use SymPy's symbolic zero
+
+            # Process each symbolic term
+            if symbolic != 0:
+                if symbolic.is_Add:
+                    symbolic_terms = symbolic.as_ordered_terms()
+                else:
+                    symbolic_terms = [symbolic]
+
+                for term in symbolic_terms:
+                    coeff, sym_expr = term.as_coeff_Mul()
+                    coeff = round(float(coeff), rounding)
+                    # coeff = round(coeff, rounding)
+                    collapsed_expr += coeff * sym_expr
+
+            # Add the constant part if it exists
+            if constant != 0:
+                constant_sympy = round(constant, rounding)
+                collapsed_expr += constant_sympy
+
+        else:
+            # Expression has no free symbols; it's a constant expression
+            numeric = float(original_expr.evalf())
+            numeric_sympy = round(numeric, rounding)
+            collapsed_expr = numeric_sympy  # float
+
+    else:
+        # For int or float, collapsed expression is the same as original
+        collapsed_expr = (
+            round(float(original_expr), rounding)
+            if rounding is not None
+            else float(original_expr)
+        )
+
+    return ParseResult(
+        original_expression=original_expr, collapsed_expression=collapsed_expr
+    )
+
+
+print(parse_value(Symbol("F")))
+print(parse_value(sqrt(2)))
+
+print(parse_value(Symbol("F") + cos(2), 3))
+print(parse_value(sqrt(2.65454) + Symbol("F"), 3))
+print(parse_value(2.65454, 3))
+print(parse_value(2.65454))
+print(parse_value(sin(2) + 3.6568, rounding=3))
+print(parse_value(sqrt(2) + 3.6568))
+print(parse_value(Symbol("F") + cos(2), 2))
+print(parse_value(sin(pi) + 3.6568, 3))
+print(parse_value(sin(sqrt(2)) + 0.3232654))
+
+
 @dataclass
 class Coordinates:
-    start: Union[Any, Iterable[Any]]
-    end: Union[Any, Iterable[Any]]
+    start: Point2D  # Now explicitly a tuple of two elements
+    end: Point2D
 
 
 @dataclass
 class Orientation:
-    angle_deg: Any
-    length: Any
+    angle_deg: AllowedValueTypes
+    length: AllowedValueTypes
 
 
 @dataclass
 class Properties:
-    E: Any = None
-    I: Any = None
-    A: Any = None
+    E: Optional[AllowedValueTypes] = None
+    I: Optional[AllowedValueTypes] = None
+    A: Optional[AllowedValueTypes] = None
 
 
 @dataclass
 class DefaultHintValues:
-    member_length: Any = 5  # default length
-    load_value: Any = 10  # default load
-    angle_deg: Any = 45  # default angle
+    member_length: AllowedValueTypes = 5  # default length
+    load_value: AllowedValueTypes = 10  # default load
+    angle_deg: AllowedValueTypes = 45  # default angle
 
 
 class Member:
     def __init__(
         self,
         m_id: int,
-        start: Iterable[Any],
-        end: Optional[Iterable[Any]] = None,
-        angle_deg: Any = None,
-        length: Any = None,
-        E: Any = None,
-        I: Any = None,
-        A: Any = None,
-        properties: Optional[Properties] = None,
+        start: Point2D,
+        end: Optional[Point2D] = None,
+        angle_deg: Optional[AllowedValueTypes] = None,
+        length: Optional[AllowedValueTypes] = None,
+        E: Optional[AllowedValueTypes] = None,
+        I: Optional[AllowedValueTypes] = None,
+        A: Optional[AllowedValueTypes] = None,
+        # properties: Optional[Properties] = None,
         orientation: Optional[Orientation] = None,
         label: Optional[str] = None,
-        symbol_hint: Optional[dict] = None,
+        symbol_hint: Optional[Dict[Symbol, AllowedValueTypes]] = None,
     ):
         self.m_id = m_id
         self.label = label
-        self.symbol_hint = symbol_hint or {}
+        self.symbol_hint: Dict[Symbol, AllowedValueTypes] = symbol_hint or {}
         self.properties = Properties(E=E, I=I, A=A)
 
-        self.start = tuple(start)
+        # Ensure start is properly typed as Point2D
+        self.start: Point2D = (start[0], start[1])
+
+        # Initialize these attributes with proper types
+        self.angle_deg: AllowedValueTypes
+        self.length: AllowedValueTypes
+        self.end: Point2D
 
         # Handle orientation and end
         if end is not None:
-            self.end = end
-            self.coordinates = Coordinates(start=self.start, end=self.end)
+            self.end = (end[0], end[1])
+            self.coordinates = Coordinates(
+                start=self.start,  # Now properly typed as Point2D
+                end=self.end,
+            )
             # Compute orientation if not provided
             if orientation is not None or (
                 angle_deg is not None and length is not None
@@ -115,6 +228,8 @@ class Member:
                     self.angle_deg = orientation.angle_deg
                     self.length = orientation.length
                 else:
+                    if angle_deg is None or length is None:
+                        raise ValueError("Both angle_deg and length must be provided")
                     self.angle_deg = angle_deg
                     self.length = length
                     self.orientation = Orientation(
@@ -137,22 +252,22 @@ class Member:
             )
 
         # Perform checks
-        self._perform_checks()
+        self._validate_2d_points()
 
         # Set default hints
         default_hints = DefaultHintValues()
         self._set_default_hints(default_hints)
 
-    def _compute_orientation_from_coordinates(self):
+    def _compute_orientation_from_coordinates(self) -> None:
         x0, y0 = self.start
         x1, y1 = self.end
         dx = x1 - x0
         dy = y1 - y0
         self.length = sqrt(dx**2 + dy**2)
-        self.angle_deg = 180 * atan2(dy, dx) / pi
+        self.angle_deg = deg(atan2(dy, dx))
         self.orientation = Orientation(angle_deg=self.angle_deg, length=self.length)
 
-    def _compute_end_from_orientation(self):
+    def _compute_end_from_orientation(self) -> Point2D:
         x0, y0 = self.start
         angle_rad = rad(self.angle_deg)
         dx = self.length * cos(angle_rad)
@@ -161,41 +276,54 @@ class Member:
         end_y = y0 + dy
         return (end_x, end_y)
 
-    def _validate_orientation_with_coordinates(self):
-        # Compute end from start, angle_deg, and length
+    def _validate_orientation_with_coordinates(self) -> None:
         computed_end = self._compute_end_from_orientation()
-        # Use provided end coordinate
         provided_end = (self.end[0], self.end[1])
-        # Check if they are equal
         if not self._points_are_equal(provided_end, computed_end):
             raise ValueError(
-                f"Provided 'end' {self.end} and 'orientation' (computed end {computed_end}) do not match."
+                f"Provided 'end' {self.end} and 'orientation' (computed 'end' {computed_end}) do not match."
             )
 
-    def _points_are_equal(self, point1, point2):
+    def _points_are_equal(self, point1: Point2D, point2: Point2D) -> bool:
         x1, y1 = point1
         x2, y2 = point2
         eq_x = simplify(x1 - x2) == 0
         eq_y = simplify(y1 - y2) == 0
         return eq_x and eq_y
 
-    def _perform_checks(self):
-        # Check if 'start' and 'end' are correct
+    def _validate_2d_points(self) -> None:
+        # Check that start and end are 2D points
         for point, name in [(self.start, "start"), (self.end, "end")]:
             if not (isinstance(point, Iterable) and len(point) == 2):
                 raise ValueError(f"'{name}' must be a 2D point.")
 
-    def _set_default_hints(self, default_hints: DefaultHintValues):
-        # Collect all symbols that may need hints
-        all_symbols = ["member_length", "load_value", "angle_deg"]
-        for symbol in all_symbols:
-            if symbol not in self.symbol_hint:
-                self.symbol_hint[symbol] = getattr(default_hints, symbol)
+    def _set_default_hints(self, default_hints: DefaultHintValues) -> None:
+        # Handle angle_deg symbols
+        if isinstance(self.angle_deg, Basic):
+            for symbol in self.angle_deg.free_symbols:
+                if isinstance(symbol, Symbol) and symbol not in self.symbol_hint:
+                    self.symbol_hint[symbol] = default_hints.angle_deg
 
-    def rename(self, new_name):
+        # Handle coordinates and length symbols
+        if isinstance(self.length, Basic):
+            for symbol in self.length.free_symbols:
+                if isinstance(symbol, Symbol) and symbol not in self.symbol_hint:
+                    self.symbol_hint[symbol] = default_hints.member_length
+
+        for coord in [self.start, self.end]:
+            for value in coord:
+                if isinstance(value, Basic):
+                    for symbol in value.free_symbols:
+                        if (
+                            isinstance(symbol, Symbol)
+                            and symbol not in self.symbol_hint
+                        ):
+                            self.symbol_hint[symbol] = default_hints.member_length
+
+    def rename(self, new_name: str) -> None:
         self.label = new_name
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Member(m_id={self.m_id}, coordinates={self.coordinates}, "
             f"orientation={self.orientation}, label={self.label}, "
@@ -226,81 +354,9 @@ class Draw2:
         }
         self.theme = color_themes[theme]
 
-    AllowedValueTypes = Symbol | Expr | Number | Float
+        # AllowedValueTypes = Symbol | Expr | Number | Float
 
-    def parse_value(
-        value: AllowedValueTypes, rounding=None, try_nummeric=False
-    ) -> tuple[Any, str]:
-        # Handle standalone float values
-        if isinstance(value, (Float, float)):
-            draw_value = float(value)
-            if rounding is not None:
-                return round(float(value), rounding), "float_rounded"
-            return value, draw_value, "float_exact"
-
-        # Handle SymPy expressions
-        if isinstance(value, Basic):
-            has_symbols = bool(value.free_symbols)
-            float_atoms = value.atoms(Float)
-            numbers = value.atoms(Number)
-
-            draw_value = value
-
-            # Convert numbers to floats if try_nummeric is True
-            if try_nummeric:
-                value = value.xreplace({num: float(num) for num in numbers})
-
-                if rounding is not None:
-                    value = value.xreplace(
-                        {f: round(float(f), rounding) for f in value.atoms(Float)}
-                    )
-                status = "numeric_with_symbols" if has_symbols else "numeric_only"
-                return value, draw_value, status
-
-            # Pure symbols case (only symbols, no numbers at all)
-            if has_symbols and not float_atoms and not numbers:
-                return value, "symbol_only"
-
-            # Handle cases with both symbols and exact numbers (but no floats)
-            if has_symbols and numbers and not float_atoms:
-                return value, "symbol_mixed_exact"
-
-            if float_atoms:
-                if rounding is not None:
-                    # Round only the Float components while preserving other parts
-                    rounded_value = value.xreplace(
-                        {f: round(float(f), rounding) for f in float_atoms}
-                    )
-                    return (
-                        rounded_value,
-                        "symbol_mixed_rounded" if has_symbols else "expr_mixed_rounded",
-                    )
-                return (
-                    value,
-                    "symbol_mixed_exact" if has_symbols else "expr_mixed_exact",
-                )
-
-            if has_symbols:
-                return value, "symbol_free_exact"
-
-            return value, "exact"
-
-        # Fallback for unexpected cases
-        return value, "unknown"
-
-    # # Test the function
-    # print(parse_value(Symbol('F')))
-    # print(parse_value(sqrt(2)))
-
-    # print(parse_value(Symbol('F') + cos(2),2))            # Expected: (F + 2, 'symbol_free_exact')
-    # print(parse_value(sqrt(2.65454) + Symbol('F'), 3))  # Expected: (rounded value, 'symbol_mixed_rounded')
-    # print(parse_value(2.65454, 3))                      # Expected: (2.655, 'float_rounded')
-    # print(parse_value(2.65454))
-    # print(parse_value(sin(2) + 3.6568, 2))              # Expected: (rounded expression, 'expr_mixed_rounded')
-    # print(parse_value(sqrt(2) + 3.6568))                # Expected: (sqrt(2) + 3.6568, 'expr_mixed')
-    # print(parse_value(Symbol('F') + cos(2), 2,try_nummeric=True))
-    # print(parse_value(sin(pi) + 3.6568, 3,try_nummeric=True))
-    # print(parse_value(sin(sqrt(2))+0.3232654))
+    # Define type aliases for better readability
 
     def draw2(self):
         ####################################################################################
@@ -310,7 +366,7 @@ class Draw2:
         ax.set_aspect("equal")
 
         member_color = self.theme["member_color"]
-        member_color_symbolic = self.theme["member_color_symbolic"]
+        # member_color_symbolic = self.theme["member_color_symbolic"]
 
         for member in self.members:
             start, end = member.start, member.end
