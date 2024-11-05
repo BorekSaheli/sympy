@@ -3,8 +3,6 @@ This module can be used to solve 2D problems with
 singularity functions in mechanics.
 """
 
-from sympy.physics.continuum_mechanics.mechanics_plotter import Draw2
-
 from sympy.core import Basic, Symbol
 from sympy.core.numbers import pi
 from sympy.external import import_module
@@ -47,7 +45,7 @@ np = import_module(
 
 
 class Member:
-    def __init__(self, x1, y1, x2, y2, E, I, A, member_id, member_label: str | None = None):
+    def __init__(self, x1, y1, x2, y2, E, I, A, member_id):
         self.x1 = x1
         self.y1 = y1
         self.x2 = x2
@@ -56,7 +54,6 @@ class Member:
         self.I = I
         self.A = A
         self.member_id = member_id
-        self.member_label = member_label or f"m{member_id}"
 
         # properties that are auto computed
         self.length = self._compute_length()
@@ -64,10 +61,6 @@ class Member:
         self.angle_deg = deg(self.angle)
         self.member_loads = []
         self.member_eq = self._compute_eq()
-
-    # def rename(self, new_name):
-    #     self.member_label = new_name
-    #     return self
 
     def _compute_eq(self):
         x1, y1, x2, y2 = self.x1, self.y1, self.x2, self.y2
@@ -292,8 +285,7 @@ class Structure2d:
             second_moment=second_moment,
         )
 
-    # def add_member(self, x1, y1, x2, y2, E, I, A):
-    def add_member(self, **kwargs):
+    def add_member(self, x1, y1, x2, y2, E, I, A):
         """
         Adds a member to the structure on a x and y grid.
 
@@ -342,12 +334,11 @@ class Structure2d:
         >>> s.add_member(0, 0, 4, 0, E, I, A)
         """
 
-        member = Member(**kwargs, member_id=len(self.members))
+        member_id = len(self.members)
+        member = Member(x1, y1, x2, y2, E, I, A, member_id)
         self.members.append(member)
-        self._add_or_update_node(kwargs["x1"], kwargs["y1"], "fixed", overwrite_type=False)
-        self._add_or_update_node(kwargs["x2"], kwargs["y2"], "fixed", overwrite_type=False)
-
-        return member
+        self._add_or_update_node(x1, y1, "fixed", overwrite_type=False)
+        self._add_or_update_node(x2, y2, "fixed", overwrite_type=False)
 
 
     def _add_or_update_node(self, x, y, new_node_type, overwrite_type=True):
@@ -1087,7 +1078,7 @@ class Structure2d:
         <BLANKLINE>
         Points of Interest - Bending Moment:
         bending_moment at [x.xx,y.yy]  (0.00)    = 0.0
-        bending_moment at [x.xx,y.yy]  (4.00)   = 0.0
+        bending_moment at [x.xx,y.yy]  (4.00)-   = 0.0
         <BLANKLINE>
         Points of Interest - Shear Force:
         shear_force at [x.xx,y.yy]  (0.00+)      = 5.0
@@ -1148,7 +1139,7 @@ class Structure2d:
                     bending_moment_value = round(
                         float(bending_moment_value), round_digits
                     )
-                string_text = f"bending_moment at [x.xx,y.yy]  ({point:.02f})"
+                string_text = f"bending_moment at [x.xx,y.yy]  ({point:.02f})-"
                 print(f"{string_text:<40} = {bending_moment_value}")
 
             else:
@@ -1330,8 +1321,6 @@ class Structure2d:
             >>> Rv3, Rh3, T1 = s.apply_support(x=7, y=0, type="fixed")
             >>> s.draw(show_load_values=True, forced_load_size=2, draw_support_icons=True) #doctest: +SKIP
         """
-
-
 
         fig, ax = plt.subplots()
         ax.set_aspect("equal")
@@ -1783,11 +1772,3 @@ class Structure2d:
             plt.yticks(new_y_ticks)
 
         ax.grid(True, zorder=10)
-
-
-
-
-    def draw2(self, members, loads, supports, connections):
-        plot = Draw2(members, loads, supports, connections)
-
-        return plot.draw2()

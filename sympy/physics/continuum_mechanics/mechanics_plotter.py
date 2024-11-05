@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Iterable, Optional, Tuple, Union, cast
 
-from sympy import S
-from sympy.core import Basic, Expr, Symbol
+from sympy.core import Basic, Expr, Float, Integer, S, Symbol
 from sympy.core.numbers import pi
 from sympy.external import import_module
 from sympy.functions.elementary.miscellaneous import sqrt
@@ -49,14 +48,24 @@ Point2D = Tuple[AllowedValueTypes, AllowedValueTypes]
 @dataclass
 class ParseResult:
     original_expression: AllowedValueTypes
-    collapsed_expression: AllowedValueTypes
+    collapsed_expression: Expr
 
 
 def separate_symbolic_and_constants(
     expr: Expr, symbols: Iterable[Symbol]
-) -> Tuple[Expr, float]:
-    symbolic_part: Expr = S.Zero  # Use SymPy's symbolic zero
-    constant_part: float = 0.0  # Initialize as float
+) -> Tuple[int, float]:
+    """
+    Separates the expression into symbolic and constant parts.
+
+    Args:
+        expr (Expr): The SymPy expression to separate.
+        symbols (Iterable[Symbol]): The symbols to consider as symbolic parts.
+
+    Returns:
+        Tuple[Expr, float]: A tuple containing the symbolic part and the constant part.
+    """
+    symbolic_part = 0
+    constant_part = 0.0
 
     # Check if the expression is additive (e.g., a + b + c)
     if expr.is_Add:
@@ -75,10 +84,46 @@ def separate_symbolic_and_constants(
     return symbolic_part, constant_part
 
 
+def to_sympy_number(n: float, rounding: Optional[int] = None) -> Union[Integer, Float]:
+    """
+    Converts a numerical value to SymPy Integer or Float based on its value.
+
+    Args:
+        n (float): The numerical value to convert.
+        rounding (Optional[int]): Number of decimal places to round the value.
+
+    Returns:
+        Union[Integer, Float]: SymPy Integer if n is whole after rounding, else SymPy Float.
+    """
+    if rounding is not None:
+        n = round(n, rounding)
+    if isinstance(n, float) and n.is_integer():
+        return Integer(int(n))
+    else:
+        if rounding is not None:
+            # Create Float from string to preserve exact decimal digits
+            n_str = f"{n:.{rounding}f}"
+            return Float(n_str)
+        else:
+            return Float(n)
+
+
 def parse_value(
     value: AllowedValueTypes,
     rounding: Optional[int] = None,
 ) -> ParseResult:
+    """
+    Parses the input value and returns the original and collapsed expressions.
+
+    The collapsed expression expresses symbolic parts multiplied by their constants.
+
+    Args:
+        value (AllowedValueTypes): The value to parse (int, float, or SymPy expression).
+        rounding (Optional[int]): Number of decimal places to round the constant parts.
+
+    Returns:
+        ParseResult: An object containing the original and collapsed expressions.
+    """
     MAX_ROUNDING = 15
     if rounding is None:
         rounding = MAX_ROUNDING
@@ -88,54 +133,62 @@ def parse_value(
 
     # Initialize the original expression
     original_expr: AllowedValueTypes = value
-    # print(value,type(value))
 
-    # Initialize collapsed expression as AllowedValueTypes
-    collapsed_expr: AllowedValueTypes
+    # Initialize collapsed expression as Expr
+    collapsed_expr: Expr
 
     if isinstance(original_expr, Expr):
         if original_expr.free_symbols:
             # Extract all free symbols in the expression
-            # Cast to Iterable[Symbol] to satisfy type checker
             free_symbols = cast(Iterable[Symbol], original_expr.free_symbols)
             symbolic, constant = separate_symbolic_and_constants(
                 original_expr, free_symbols
             )
 
             # Initialize the collapsed expression as Expr
-            collapsed_expr = S.Zero  # Use SymPy's symbolic zero
+            collapsed_expr = S.Zero
 
             # Process each symbolic term
             if symbolic != 0:
-                if symbolic.is_Add:
+                if isinstance(symbolic, Expr) and symbolic.is_Add:
                     symbolic_terms = symbolic.as_ordered_terms()
                 else:
                     symbolic_terms = [symbolic]
 
                 for term in symbolic_terms:
-                    coeff, sym_expr = term.as_coeff_Mul()
+                    if hasattr(term, "as_coeff_Mul"):
+                        coeff, sym_expr = term.as_coeff_Mul()
+                    else:
+                        coeff, sym_expr = 1, term
                     coeff = round(float(coeff), rounding)
-                    # coeff = round(coeff, rounding)
-                    collapsed_expr += coeff * sym_expr
+                    if coeff == 1:
+                        collapsed_expr += sym_expr
+                    elif coeff == -1:
+                        collapsed_expr -= sym_expr
+                    else:
+                        collapsed_expr += to_sympy_number(coeff, rounding) * sym_expr
 
             # Add the constant part if it exists
             if constant != 0:
-                constant_sympy = round(constant, rounding)
+                constant_sympy = to_sympy_number(constant, rounding)
                 collapsed_expr += constant_sympy
 
         else:
             # Expression has no free symbols; it's a constant expression
             numeric = float(original_expr.evalf())
-            numeric_sympy = round(numeric, rounding)
-            collapsed_expr = numeric_sympy  # float
+            numeric_sympy = to_sympy_number(numeric, rounding)
+            collapsed_expr = numeric_sympy  # float or Integer
 
     else:
         # For int or float, collapsed expression is the same as original
         collapsed_expr = (
-            round(float(original_expr), rounding)
+            to_sympy_number(float(original_expr), rounding)
             if rounding is not None
-            else float(original_expr)
+            else Float(float(original_expr))
         )
+
+    if isinstance(collapsed_expr, Float):
+        collapsed_expr = collapsed_expr.round(rounding)
 
     return ParseResult(
         original_expression=original_expr, collapsed_expression=collapsed_expr
