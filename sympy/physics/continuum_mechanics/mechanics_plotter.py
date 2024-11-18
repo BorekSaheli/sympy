@@ -1,3 +1,5 @@
+"""This is a mechanics plotter module that can be used by its self or can be integrated into other mechanics modules"""
+
 from dataclasses import dataclass
 from typing import Dict, Iterable, Optional, Tuple, Union, cast
 
