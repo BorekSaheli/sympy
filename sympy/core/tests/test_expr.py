@@ -981,6 +981,15 @@ def test_replace():
     assert S.Zero.replace(Wild('x'), 1, exact=True) == 0
 
 
+def test_replace_integral():
+    # https://github.com/sympy/sympy/issues/27142
+    q, p, s, t = symbols('q p s t', cls=Wild)
+    a, b, c, d = symbols('a b c d')
+    i = Integral(a + b, (b, c, d))
+    pattern = Integral(q, (p, s, t))
+    assert i.replace(pattern, q) == a + b
+
+
 def test_find():
     expr = (x + y + 2 + sin(3*x))
 
@@ -2000,7 +2009,7 @@ def test_round():
             n = '-' + n
         v = str(Float(n).round(p))[:j]  # pertinent digits
         if v.endswith('.'):
-          continue  # it ends with 0 which is even
+            continue  # it ends with 0 which is even
         L = int(v[-1])  # last digit
         assert L % 2 == 0, (n, '->', v)
 
@@ -2297,3 +2306,8 @@ def test__unevaluated_Mul():
     A, B = symbols('A B', commutative=False)
     assert _unevaluated_Mul(x, A, B, S(2), A).args == (2, x, A, B, A)
     assert _unevaluated_Mul(-x*A*B, S(2), A).args == (-2, x, A, B, A)
+
+
+def test_Float_zero_division_error():
+    # issue 27165
+    assert Float('1.7567e-1417').round(15) == Float(0)

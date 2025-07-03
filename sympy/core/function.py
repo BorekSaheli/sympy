@@ -31,8 +31,10 @@ There are three types of functions implemented in SymPy:
 """
 
 from __future__ import annotations
+
 from typing import Any
 from collections.abc import Iterable
+import copyreg
 
 from .add import Add
 from .basic import Basic, _atomic
@@ -440,11 +442,15 @@ class Function(Application, Expr):
         return False
 
     @cacheit
-    def __new__(cls, *args, **options):
+    def __new__(cls, *args, **options) -> type[AppliedUndef]:  # type: ignore
         # Handle calls like Function('f')
         if cls is Function:
-            return UndefinedFunction(*args, **options)
+            return UndefinedFunction(*args, **options)  # type: ignore
+        else:
+            return cls._new_(*args, **options)  # type: ignore
 
+    @classmethod
+    def _new_(cls, *args, **options) -> Expr:
         n = len(args)
 
         if not cls._valid_nargs(n):
@@ -809,6 +815,14 @@ class Function(Application, Expr):
             return self
 
 
+class DefinedFunction(Function):
+    """Base class for defined functions like ``sin``, ``cos``, ..."""
+
+    @cacheit
+    def __new__(cls, *args, **options) -> Expr:  # type: ignore
+        return cls._new_(*args, **options)
+
+
 class AppliedUndef(Function):
     """
     Base class for expressions resulting from the application of an undefined
@@ -817,13 +831,15 @@ class AppliedUndef(Function):
 
     is_number = False
 
-    def __new__(cls, *args, **options):
-        args = list(map(sympify, args))
+    name: str
+
+    def __new__(cls, *args, **options) -> Expr:  # type: ignore
+        args = tuple(map(sympify, args))
         u = [a.name for a in args if isinstance(a, UndefinedFunction)]
         if u:
             raise TypeError('Invalid argument: expecting an expression, not UndefinedFunction%s: %s' % (
                 's'*(len(u) > 1), ', '.join(u)))
-        obj = super().__new__(cls, *args, **options)
+        obj: Expr = super().__new__(cls, *args, **options)  # type: ignore
         return obj
 
     def _eval_as_leading_term(self, x, logx, cdir):
@@ -862,11 +878,15 @@ class UndefSageHelper:
 
 _undef_sage_helper = UndefSageHelper()
 
+
 class UndefinedFunction(FunctionClass):
     """
     The (meta)class of undefined functions.
     """
-    def __new__(mcl, name, bases=(AppliedUndef,), __dict__=None, **kwargs):
+    name: str
+    _sage_: UndefSageHelper
+
+    def __new__(mcl, name, bases=(AppliedUndef,), __dict__=None, **kwargs) -> type[AppliedUndef]:
         from .symbol import _filter_assumptions
         # Allow Function('f', real=True)
         # and/or Function(Symbol('f', real=True))
@@ -894,10 +914,10 @@ class UndefinedFunction(FunctionClass):
         __dict__.update({'_kwargs': kwargs})
         # do this for pickling
         __dict__['__module__'] = None
-        obj = super().__new__(mcl, name, bases, __dict__)
+        obj = super().__new__(mcl, name, bases, __dict__)  # type: ignore
         obj.name = name
         obj._sage_ = _undef_sage_helper
-        return obj
+        return obj  # type: ignore
 
     def __instancecheck__(cls, instance):
         return cls in type(instance).__mro__
@@ -918,6 +938,20 @@ class UndefinedFunction(FunctionClass):
     @property
     def _diff_wrt(self):
         return False
+
+
+# Using copyreg is the only way to make a dynamically generated instance of a
+# metaclass picklable without using a custom pickler. It is not possible to
+# define e.g. __reduce__ on the metaclass because obj.__reduce__ will retrieve
+# the __reduce__ method for reducing instances of the type rather than for the
+# type itself.
+def _reduce_undef(f):
+    return (_rebuild_undef, (f.name, f._kwargs))
+
+def _rebuild_undef(name, kwargs):
+    return Function(name, **kwargs)
+
+copyreg.pickle(UndefinedFunction, _reduce_undef)
 
 
 # XXX: The type: ignore on WildFunction is because mypy complains:
@@ -1045,7 +1079,7 @@ class Derivative(Expr):
         2*f(x)
 
     Such derivatives will show up when the chain rule is used to
-    evalulate a derivative:
+    evaluate a derivative:
 
         >>> f(g(x)).diff(x)
         Derivative(f(g(x)), g(x))*Derivative(g(x), x)
@@ -1225,6 +1259,8 @@ class Derivative(Expr):
 
     def __new__(cls, expr, *variables, **kwargs):
         expr = sympify(expr)
+        if not isinstance(expr, Basic):
+            raise TypeError(f"Cannot represent derivative of {type(expr)}")
         symbols_or_none = getattr(expr, "free_symbols", None)
         has_symbol_set = isinstance(symbols_or_none, set)
 
@@ -1942,7 +1978,7 @@ class Lambda(Expr):
     """
     is_Function = True
 
-    def __new__(cls, signature, expr):
+    def __new__(cls, signature, expr) -> Lambda:
         if iterable(signature) and not isinstance(signature, (tuple, Tuple)):
             sympy_deprecation_warning(
                 """
@@ -1953,8 +1989,8 @@ class Lambda(Expr):
                 active_deprecations_target="deprecated-non-tuple-lambda",
             )
             signature = tuple(signature)
-        sig = signature if iterable(signature) else (signature,)
-        sig = sympify(sig)
+        _sig = signature if iterable(signature) else (signature,)
+        sig: Tuple = sympify(_sig) # type: ignore
         cls._check_signature(sig)
 
         if len(sig) == 1 and sig[0] == expr:

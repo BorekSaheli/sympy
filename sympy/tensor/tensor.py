@@ -2143,12 +2143,6 @@ class TensExpr(Expr, ABC):
     def _get_indices_permutation(indices1, indices2):
         return [indices1.index(i) for i in indices2]
 
-    def expand(self, **hints):
-        return _expand(self, **hints).doit()
-
-    def _expand(self, **kwargs):
-        return self
-
     def _get_free_indices_set(self):
         indset = set()
         for arg in self.args:
@@ -2509,12 +2503,12 @@ class TensAdd(TensExpr, AssocOp):
         else:
             return set()
 
-    def doit(self, **hints):
+    def doit(self, **hints) -> Expr:
         deep = hints.get('deep', True)
         if deep:
             args = [arg.doit(**hints) for arg in self.args]
         else:
-            args = self.args
+            args = self.args # type: ignore
 
         # if any of the args are zero (after doit), drop them. Otherwise, _tensAdd_check will complain about non-matching indices, even though the TensAdd is correctly formed.
         args = [arg for arg in args if arg != S.Zero]
@@ -2610,8 +2604,6 @@ class TensAdd(TensExpr, AssocOp):
             indices.extend([i for i in get_indices(arg) if i not in indices])
         return indices
 
-    def _expand(self, **hints):
-        return TensAdd(*[_expand(i, **hints) for i in self.args])
 
     def __call__(self, *indices):
         deprecate_call()
@@ -2888,7 +2880,7 @@ class Tensor(TensExpr):
 
     is_commutative = False
 
-    _index_structure = None  # type: _IndexStructure
+    _index_structure: _IndexStructure
     args: tuple[TensorHead, Tuple]
 
     def __new__(cls, tensor_head, indices, *, is_canon_bp=False, **kw_args):
@@ -3052,9 +3044,6 @@ class Tensor(TensExpr):
 
     def split(self):
         return [self]
-
-    def _expand(self, **kwargs):
-        return self
 
     def sorted_components(self):
         return self
@@ -3357,7 +3346,7 @@ class Tensor(TensExpr):
         expr = Indexed(tens.args[0], *index_symbols)
         return self._check_add_Sum(expr, index_symbols)
 
-    def _eval_partial_derivative(self, s):  # type: (Tensor) -> Expr
+    def _eval_partial_derivative(self, s: Tensor) -> Expr:
 
         if not isinstance(s, Tensor):
             return S.Zero
@@ -3443,7 +3432,7 @@ class TensMul(TensExpr, AssocOp):
     """
     identity = S.One
 
-    _index_structure = None  # type: _IndexStructure
+    _index_structure: _IndexStructure
 
     def __new__(cls, *args, **kw_args):
         is_canon_bp = kw_args.get('is_canon_bp', False)
@@ -3481,7 +3470,7 @@ class TensMul(TensExpr, AssocOp):
 
         obj = TensExpr.__new__(cls, *args)
         obj._indices = indices
-        obj._index_types = index_types[:]
+        obj._index_types = index_types.copy()
         obj._index_structure = index_structure
         obj._free = index_structure.free[:]
         obj._dum = index_structure.dum[:]
@@ -3844,13 +3833,10 @@ class TensMul(TensExpr, AssocOp):
                 res *= arg
         return splitp
 
-    def _expand(self, **hints):
-        # TODO: temporary solution, in the future this should be linked to
-        # `Expr.expand`.
-        args = [_expand(arg, **hints) for arg in self.args]
-        args1 = [arg.args if isinstance(arg, (Add, TensAdd)) else (arg,) for arg in args]
+    def _eval_expand_mul(self, **hints):
+        args1 = [arg.args if isinstance(arg, (Add, TensAdd)) else (arg,) for arg in self.args]
         return TensAdd(*[
-            TensMul(*i) for i in itertools.product(*args1)]
+            TensMul(*i).doit(deep=False) for i in itertools.product(*args1)]
         )
 
     def __neg__(self):
@@ -3947,6 +3933,7 @@ class TensMul(TensExpr, AssocOp):
             return expr.canon_bp()
         if not expr.components:
             return expr
+        expr = expr.doit(deep=False) #make sure self.coeff is populated correctly
         t = expr.sorted_components()
         g, dummies, msym = t._index_structure.indices_canon_args()
         v = components_canon_args(t.components)
@@ -4003,7 +3990,7 @@ class TensMul(TensExpr, AssocOp):
         >>> t.contract_metric(g).canon_bp()
         p(L_0)*q(-L_0)
         """
-        expr = self.expand()
+        expr = self.expand().doit(deep=False)
         if self != expr:
             expr = canon_bp(expr)
             return contract_metric(expr, g)
@@ -4146,7 +4133,7 @@ class TensMul(TensExpr, AssocOp):
     def _set_indices(self, *indices, is_canon_bp=False, **kw_args):
         if len(indices) != self.ext_rank:
             raise ValueError("indices length mismatch")
-        args = list(self.args)[:]
+        args = list(self.args)
         pos = 0
         for i, arg in enumerate(args):
             if not isinstance(arg, TensExpr):
@@ -5167,7 +5154,7 @@ def get_lines(ex, index_type):
         # if p0 == ta0[0] then G in pos c1 is mult on the right by G in c0
         ta0 = dt[arguments[c0]]
         b0, b1 = (c0, c1) if p0 == ta0[1]  else (c1, c0)
-        lines1 = lines[:]
+        lines1 = lines.copy()
         for line in lines:
             if line[-1] == b0:
                 if line[0] == b1:
@@ -5257,13 +5244,6 @@ def substitute_indices(t, *index_tuples):
     if not isinstance(t, TensExpr):
         return t
     return t.substitute_indices(*index_tuples)
-
-
-def _expand(expr, **kwargs):
-    if isinstance(expr, TensExpr):
-        return expr._expand(**kwargs)
-    else:
-        return expr.expand(**kwargs)
 
 
 def _get_wilds(expr):

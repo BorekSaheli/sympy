@@ -1,5 +1,6 @@
 """User-friendly public interface to polynomial functions. """
 
+from __future__ import annotations
 
 from functools import wraps, reduce
 from operator import mul
@@ -56,7 +57,6 @@ from sympy.polys.rootisolation import dup_isolate_real_roots_list
 from sympy.utilities import group, public, filldedent
 from sympy.utilities.exceptions import sympy_deprecation_warning
 from sympy.utilities.iterables import iterable, sift
-
 
 # Required to avoid errors
 import sympy.polys
@@ -164,7 +164,10 @@ class Poly(Basic):
     is_Poly = True
     _op_priority = 10.001
 
-    def __new__(cls, rep, *gens, **args):
+    rep: DMP
+    gens: tuple[Expr, ...]
+
+    def __new__(cls, rep, *gens, **args) -> Poly:
         """Create a new polynomial instance out of something useful. """
         opt = options.build_options(gens, args)
 
@@ -179,7 +182,7 @@ class Poly(Basic):
             else:
                 return cls._from_list(list(rep), opt)
         else:
-            rep = sympify(rep, evaluate=type(rep) is not str)
+            rep = sympify(rep, evaluate=type(rep) is not str) # type: ignore
 
             if rep.is_Poly:
                 return cls._from_poly(rep, opt)
@@ -439,11 +442,6 @@ class Poly(Basic):
     def one(self):
         """Return one polynomial with ``self``'s properties. """
         return self.new(self.rep.one(self.rep.lev, self.rep.dom), *self.gens)
-
-    @property
-    def unit(self):
-        """Return unit polynomial with ``self``'s properties. """
-        return self.new(self.rep.unit(self.rep.lev, self.rep.dom), *self.gens)
 
     def unify(f, g):
         """
@@ -3357,7 +3355,7 @@ class Poly(Basic):
 
         return [(f.per(g), k) for g, k in factors]
 
-    def factor_list(f):
+    def factor_list(f) -> tuple[Expr, list[tuple[Poly, int]]]:
         """
         Returns a list of irreducible factors of ``f``.
 
@@ -3714,11 +3712,12 @@ class Poly(Basic):
         else:
             coeffs = [coeff.evalf(n=n).as_real_imag()
                     for coeff in f.all_coeffs()]
-            try:
-                coeffs = [mpmath.mpc(*coeff) for coeff in coeffs]
-            except TypeError:
-                raise DomainError("Numerical domain expected, got %s" % \
-                        f.rep.dom)
+            with mpmath.workdps(n):
+                try:
+                    coeffs = [mpmath.mpc(*coeff) for coeff in coeffs]
+                except TypeError:
+                    raise DomainError("Numerical domain expected, got %s" % \
+                            f.rep.dom)
 
         dps = mpmath.mp.dps
         mpmath.mp.dps = n
@@ -6261,6 +6260,12 @@ def sqf_part(f, *gens, **args):
         return result
 
 
+def _poly_sort_key(poly):
+    """Sort a list of polys."""
+    rep = poly.rep.to_list()
+    return (len(rep), len(poly.gens), str(poly.domain), rep)
+
+
 def _sorted_factors(factors, method):
     """Sort a list of ``(expr, exp)`` pairs. """
     if method == 'sqf':
@@ -7746,7 +7751,7 @@ class GroebnerBasis(Basic):
         Examples
         ========
 
-        >>> from sympy import groebner, expand
+        >>> from sympy import groebner, expand, Poly
         >>> from sympy.abc import x, y
 
         >>> f = 2*x**4 - x**2 + y**3 + y**2
@@ -7761,8 +7766,23 @@ class GroebnerBasis(Basic):
         >>> _ == f
         True
 
+        # Using Poly input
+        >>> f_poly = Poly(f, x, y)
+        >>> G = groebner([Poly(x**3 - x), Poly(y**3 - y)])
+
+        >>> G.reduce(f_poly)
+        ([Poly(2*x, x, y, domain='ZZ'), Poly(1, x, y, domain='ZZ')], Poly(x**2 + y**2 + y, x, y, domain='ZZ'))
+
         """
-        poly = Poly._from_expr(expr, self._options)
+        if isinstance(expr, Poly):
+
+            if expr.gens != self._options.gens:
+                raise ValueError("Polynomial generators don't match Groebner basis generators")
+            poly = expr.set_domain(self._options.domain)
+        else:
+
+            poly = Poly._from_expr(expr, self._options)
+
         polys = [poly] + list(self._basis)
 
         opt = self._options

@@ -195,7 +195,7 @@ def _invert(f_x, y, x, domain=S.Complexes):
     # "Fancier" solution sets like those obtained by inversion of trigonometric
     # functions already include general validity conditions (i.e. conditions on
     # the domain of the respective inverse functions), so we should avoid adding
-    # blanket intesections with S.Reals. But subsets of R (or C) must still be
+    # blanket intersections with S.Reals. But subsets of R (or C) must still be
     # accounted for.
     if domain is S.Reals:
         return x1, s
@@ -321,7 +321,7 @@ def _invert_real(f, g_ys, symbol):
                     return (expo, S.EmptySet)
 
     if isinstance(f, (TrigonometricFunction, HyperbolicFunction)):
-         return _invert_trig_hyp_real(f, g_ys, symbol)
+        return _invert_trig_hyp_real(f, g_ys, symbol)
 
     return (f, g_ys)
 
@@ -575,7 +575,7 @@ def _invert_complex(f, g_ys, symbol):
             return _invert_complex(f.exp, exp_invs, symbol)
 
     if isinstance(f, (TrigonometricFunction, HyperbolicFunction)):
-         return _invert_trig_hyp_complex(f, g_ys, symbol)
+        return _invert_trig_hyp_complex(f, g_ys, symbol)
 
     return (f, g_ys)
 
