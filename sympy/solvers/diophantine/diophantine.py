@@ -167,7 +167,7 @@ class DiophantineEquationType:
     dimension :
         The number of symbols being solved for
     """
-    name = None  # type: str
+    name: str
 
     def __init__(self, equation, free_symbols=None):
         self.equation = _sympify(equation).expand(force=True)
@@ -985,7 +985,7 @@ class GeneralSumOfSquares(DiophantineEquationType):
 
     .. [1] Representing an integer as a sum of three squares, [online],
         Available:
-        https://www.proofwiki.org/wiki/Integer_as_Sum_of_Three_Squares
+        https://proofwiki.org/wiki/Integer_as_Sum_of_Three_Squares
     """
 
     name = 'general_sum_of_squares'
@@ -1476,9 +1476,7 @@ def diophantine(eq, param=symbols("t", integer=True), syms=None,
         else:
             raise NotImplementedError('unhandled type: %s' % eq_type)
 
-    # remove null merge results
-    if () in sols:
-        sols.remove(())
+    sols.discard(())
     null = tuple([0]*len(var))
     # if there is no solution, return trivial solution
     if not sols and eq.subs(zip(var, null)).is_zero:
@@ -3408,7 +3406,7 @@ def diop_general_sum_of_squares(eq, limit=1):
 
     .. [1] Representing an integer as a sum of three squares, [online],
         Available:
-        https://www.proofwiki.org/wiki/Integer_as_Sum_of_Three_Squares
+        https://proofwiki.org/wiki/Integer_as_Sum_of_Three_Squares
     """
     var, coeff, diop_type = classify_diop(eq, _dict=False)
 
@@ -3839,7 +3837,7 @@ def power_representation(n, p, k, zeros=False):
                 '''Todd G. Will, "When Is n^2 a Sum of k Squares?", [online].
                 Available: https://www.maa.org/sites/default/files/Will-MMz-201037918.pdf'''
                 return
-            # quick tests since feasibility includes the possiblity of 0
+            # quick tests since feasibility includes the possibility of 0
             if k == 4 and (n in (1, 3, 5, 9, 11, 17, 29, 41) or remove(n, 4)[0] in (2, 6, 14)):
                 # A000534
                 return

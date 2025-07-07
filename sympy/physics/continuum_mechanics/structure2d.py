@@ -11,6 +11,7 @@ from sympy.functions.elementary.miscellaneous import sqrt
 from sympy.functions.elementary.trigonometric import atan2, cos, sin, tan
 from sympy.geometry.polygon import deg, rad
 from sympy.physics.continuum_mechanics.beam import Beam
+from sympy.physics.continuum_mechanics.column import Column
 from sympy.simplify import nsimplify, simplify
 
 plt = import_module(
@@ -147,10 +148,8 @@ class Structure2d:
         The positive direction for the x-axis is to the right, and the positive direction for the y-axis is downwards.
 
         Limitations:
-            - Only bending moments and shear forces are considered in the analysis.
             - Only non-branching or non-intersecting structures are supported. (All members must either be connected to ONE other member at each end or to nothing)
             - All E, A, I values must be the same for all members.
-            - Supports can only have ONE unknown reaction force in the horizontal direction.
             - Members must be added in order of the unwrapping of the structure, from left to right or right to left.
             - Support must be added at the end of the a member.
 
@@ -263,6 +262,7 @@ class Structure2d:
         self.unwrapped_bendpoints = []
         self.unwrapped_loadpoints = []
         self.beam = self._init_beam()
+        self.column = self._init_column()
         self.reaction_loads = {}
         self.load_qz = 0
 
@@ -283,6 +283,20 @@ class Structure2d:
             length=length,
             elastic_modulus=elastic_modulus,
             second_moment=second_moment,
+        )
+
+    def _init_column(
+        self,
+        length=1,
+        elastic_modulus=1,
+        area=1,
+        variable=Symbol("x"),
+        base_char="C",
+        ):
+        return Column(
+            length=length,
+            elastic_modulus=elastic_modulus,
+            area=area,
         )
 
     def add_member(self, x1, y1, x2, y2, E, I, A):
@@ -533,15 +547,19 @@ class Structure2d:
 
                     if nn[i] == 2:
                         self.beam.apply_load(B[i] * cos(oo[-1]), bb[i], -1)
+                        self.column.apply_load(B[i] * sin(oo[-1]), bb[i], -1)
 
                     if nn[i] == 3:
                         self.beam.apply_load(B[i] * sin(oo[-1]), bb[i], -1)
+                        self.column.apply_load(B[i] * cos(oo[-1]), bb[i], -1)
 
                     if nn[i] == 4:
                         self.beam.apply_load(B[i] * cos(oo[-1]), bb[i], 0)
+                        self.column.apply_load(B[i] * sin(oo[-1]), bb[i], 0)
 
                     if nn[i] == 5:
                         self.beam.apply_load(B[i] * sin(oo[-1]), bb[i], 0)
+                        self.column.apply_load(B[i] * cos(oo[-1]), bb[i], 0)
 
                     break
                 else:
@@ -551,15 +569,19 @@ class Structure2d:
 
                         if nn[i] == 2:
                             self.beam.apply_load(B[i] * cos(oo[j - 1]), bb[i], -1)
+                            self.column.apply_load(B[i] * sin(oo[j - 1]), bb[i], -1)
 
                         if nn[i] == 3:
                             self.beam.apply_load(B[i] * sin(oo[j - 1]), bb[i], -1)
+                            self.column.apply_load(B[i] * cos(oo[j - 1]), bb[i], -1)
 
                         if nn[i] == 4:
                             self.beam.apply_load(B[i] * cos(oo[j - 1]), bb[i], 0)
+                            self.column.apply_load(B[i] * sin(oo[j - 1]), bb[i], 0)
 
                         if nn[i] == 5:
                             self.beam.apply_load(B[i] * sin(oo[j - 1]), bb[i], 0)
+                            self.column.apply_load(B[i] * cos(oo[j - 1]), bb[i], 0)
                         break
 
         for i in range(len(B)):
@@ -569,10 +591,16 @@ class Structure2d:
                         self.beam.apply_load(
                             B[i] * (cos(oo[j]) - cos(oo[j - 1])), aa[j], -1
                         )
+                        self.column.apply_load(
+                            B[i] * (sin(oo[j]) - sin(oo[j - 1])), aa[j], -1
+                        )
 
                     if nn[i] == 3:
                         self.beam.apply_load(
                             B[i] * (sin(oo[j]) - sin(oo[j - 1])), aa[j], -1
+                        )
+                        self.column.apply_load(
+                            B[i] * (cos(oo[j]) - cos(oo[j - 1])), aa[j], -1
                         )
 
                     if nn[i] == 4:
@@ -584,6 +612,14 @@ class Structure2d:
                             aa[j],
                             -1,
                         )
+                        self.column.apply_load(
+                            B[i] * (sin(oo[j]) - sin(oo[j - 1])), aa[j], 0
+                        )
+                        self.column.apply_load(
+                            B[i] * (aa[j] - bb[i]) * (sin(oo[j]) - sin(oo[j - 1])),
+                            aa[j],
+                            -1,
+                        )
 
                     if nn[i] == 5:
                         self.beam.apply_load(
@@ -591,6 +627,12 @@ class Structure2d:
                         )
                         self.beam.apply_load(
                             B[i] * (aa[j] - bb[i]) * (sin(oo[j]) - sin(oo[j - 1])),
+                            aa[j],
+                            -1,
+                        )
+                        self.column.apply_load(B[i] * (cos(oo[j]) - cos(oo[j - 1])), aa[j], 0)
+                        self.column.apply_load(
+                            B[i] * (aa[j] - bb[i]) * (cos(oo[j]) - cos(oo[j - 1])),
                             aa[j],
                             -1,
                         )
@@ -770,6 +812,7 @@ class Structure2d:
             self.loads[-2].is_support_reaction = True
 
             self.beam.bc_deflection.append((unwarap_x, 0))
+            self.column._bc_deflection.append(unwarap_x)
             return Rv, Rh
 
         elif type == "roller":
@@ -804,6 +847,7 @@ class Structure2d:
             self.loads[-3].is_support_reaction = True
 
             self.beam.bc_deflection.append((unwarap_x, 0))
+            self.column._bc_deflection.append(unwarap_x)
             # This i think sould be slope of the beam at this point beacause 0 is assuming supports and horizontal members
             # unwrap is already called so it should be extaracatble from the unwrapped position
             self.beam.bc_slope.append((unwarap_x, 0))
@@ -877,6 +921,7 @@ class Structure2d:
         # Solve for moment and vertical reaction loads using the beam solver
         # print(args_for_beam_solver)
         self.beam.solve_for_reaction_loads(*args_for_beam_solver)
+        self.column.solve_for_reaction_loads()
 
         # Compute the horizontal reaction load by summing up all horizontal forces
         sum_horizontal = 0

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import overload
+
 from collections import defaultdict
 
 from sympy.concrete.products import Product
@@ -28,10 +32,12 @@ from sympy.functions.special.bessel import (BesselBase, besselj, besseli,
                                             besselk, bessely, jn)
 from sympy.functions.special.tensor_functions import KroneckerDelta
 from sympy.integrals.integrals import Integral
+from sympy.logic.boolalg import Boolean
 from sympy.matrices.expressions import (MatrixExpr, MatAdd, MatMul,
                                             MatPow, MatrixSymbol)
 from sympy.polys import together, cancel, factor
 from sympy.polys.numberfields.minpoly import _is_sum_surds, _minimal_polynomial_sq
+from sympy.sets.sets import Set
 from sympy.simplify.combsimp import combsimp
 from sympy.simplify.cse_opts import sub_pre, sub_post
 from sympy.simplify.hyperexpand import hyperexpand
@@ -258,7 +264,7 @@ def posify(eq):
     [2]
     """
     eq = sympify(eq)
-    if iterable(eq):
+    if not isinstance(eq, Basic) and iterable(eq):
         f = type(eq)
         eq = list(eq)
         syms = set()
@@ -416,6 +422,15 @@ def signsimp(expr, evaluate=None):
         e = e.replace(lambda x: x.is_Mul and -(-x) != x, lambda x: -(-x))
     return e
 
+
+@overload
+def simplify(expr: Expr, **kwargs) -> Expr: ...
+@overload
+def simplify(expr: Boolean, **kwargs) -> Boolean: ...
+@overload
+def simplify(expr: Set, **kwargs) -> Set: ...
+@overload
+def simplify(expr: Basic, **kwargs) -> Basic: ...
 
 def simplify(expr, ratio=1.7, measure=count_ops, rational=False, inverse=False, doit=True, **kwargs):
     """Simplifies the given expression.
